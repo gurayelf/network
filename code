@@ -1,0 +1,225 @@
+#include <Windows.h>
+#include <iostream>
+#include <winsock.h>
+#include <stdint.h>
+#include <set>
+#include <iterator>
+#include <exception>
+#include <thread>
+#include <vector>
+#include <sstream>
+#include <string>
+using namespace std;
+
+set<int> edges;
+
+void server(int N, int port, string clientID) {
+	char c_id[200] = "";
+	char recvbuf[10] = "";
+	string s;
+	 
+	SOCKET soc;
+	soc = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+	sockaddr_in RecvAddr;
+	int RecvAddrLen = sizeof(RecvAddr);
+	RecvAddr.sin_family = AF_INET;
+	RecvAddr.sin_addr.s_addr = inet_addr("127.0.0.1");
+	RecvAddr.sin_port = port;
+	try {
+		bind(soc, (SOCKADDR*)&RecvAddr, sizeof(RecvAddr));
+	}
+	catch (exception &e) {
+		cout << "Error at binding!!" << e.what() << endl;
+	}
+	listen(soc, SOMAXCONN);
+	Sleep(20);
+	for (int i = 0; i < N*N; i++) {
+		accept(soc, (SOCKADDR*)&RecvAddr, &RecvAddrLen);
+
+		Sleep(30);
+		recv(soc, c_id, sizeof(c_id), NULL);
+		if (c_id[0] == '\0')
+			continue;
+				
+		if (c_id == clientID) {
+			cout << "Server ack clientId : " << clientID << endl;
+			s = "ACK";
+			strcpy_s(recvbuf, s.c_str());
+			send(soc, recvbuf, 1024, 0);
+		}
+		else {
+			cout << "Server not ack clientId : " << clientID << endl;
+			s = "NACK";
+			strcpy_s(recvbuf, s.c_str());
+			send(soc, recvbuf, 1024, 0);
+		}
+		closesocket(soc);
+	}
+	char cport;
+	int *pnumber2;
+	pnumber2 = &port;
+	memcpy(&cport, pnumber2, 32);
+
+	while (1) {
+		accept(soc, (SOCKADDR*)&RecvAddr, &RecvAddrLen);
+
+		send(soc, "Server Message from port " + cport, 30, 0);
+		closesocket(soc);
+
+	}
+}
+
+bool checkInOwnPorts(int port, vector<int> ports) {
+	for (int i = 0; i < ports.size() ; i++) {
+		if (port == ports[i])
+			return true;
+		else
+			return false;
+	}
+}
+
+void client(string nodeID, vector<int> ports) {
+	char c_id[200] = "";
+	char recvbuf[10] = "";
+	SOCKET soc;
+	sockaddr_in SendAddr;
+	int SendAddrLen = sizeof(SendAddr);
+	
+	string a;
+	Sleep(30);
+	int p = 5000;
+	set <int> edges;
+	set<int>::iterator itr;
+
+	while (p < 5010) {
+			if (!checkInOwnPorts(p,ports)) {
+				try {
+					soc = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+					SendAddr.sin_family = AF_INET;
+					SendAddr.sin_addr.s_addr = inet_addr("127.0.0.1");
+					SendAddr.sin_port = p;
+					connect(soc, (SOCKADDR*)&SendAddr, SendAddrLen);
+		
+					strcpy_s(c_id, nodeID.c_str());
+					send(soc, c_id, 10, NULL);
+
+					Sleep(20);
+					Sleep(10);
+					Sleep(5);
+					recv(soc, recvbuf, 10, MSG_PEEK);
+
+					a = recvbuf;
+
+					if (a == "ACK") {
+						cout << "ACK from " << p << endl;
+						edges.insert(atoi(c_id));
+					}
+					else {
+						cout << "Why nack??" << p << endl;
+					}
+					closesocket(soc);
+				}
+				catch (exception &e) {
+					cout << "Client could not connect" << p << e.what() << endl;
+				}
+			}
+		p++;
+	}
+	cout << "Client node " << nodeID << " can connect to:" << endl;
+
+	for (itr = edges.begin(); itr != edges.end(); ++itr) {
+		cout << *itr << endl;
+	}
+}
+
+int main() {
+	WSADATA wsaData;
+	WSAStartup(MAKEWORD(2, 2), &wsaData);
+
+	std::vector<std::vector<int>> ports;
+	std::vector<std::vector<int>> clientID;
+	std::vector<int> pp;
+	std::vector<int> row;
+	std::vector<int> row2;
+
+	int numofnodes;
+	int bindedports[10];
+	int idarray[10];
+	int value;
+	int value2;
+
+	cout << "Enter number of nodes in the network:";
+	cin >> numofnodes;
+
+	for (int i = 0; i < numofnodes; i++) {
+		cout << "Enter a node ID : ";
+		cin >> idarray[i];
+
+		cout << "Enter the number of nodes to be bind : ";
+		cin >> bindedports[i];
+	}
+
+	for (int i = 0; i < numofnodes; i++) {
+		for (int j = 0; j < bindedports[i]; j++) {
+			cout << "Enter listening port number (5000 - 5010) : " << endl;
+			cout << "[" << i << "," << j << "] : ";
+			cin >> value;
+			row.push_back(value);
+		}
+		ports.push_back(row);
+	}
+
+	for (int i = 0; i < numofnodes; i++) {
+		for (int j = 0; j < bindedports[i]; j++) {
+			cout << "Enter the client ID : " << endl;
+			cout << "[" << i << "," << j << "] : ";
+			cin >> value2;
+			row2.push_back(value2);
+		}
+		clientID.push_back(row2);
+	}
+
+	std::vector<std::thread> server_threads;
+	std::thread t;
+	int a = 0;
+
+	cout << endl << "SERVER" << endl;
+
+	for (int k = 0; k < numofnodes; k++) {
+		try {
+			for (int j = 0; j < bindedports[k]; j++) {
+				pp.push_back(ports[k][j]);
+
+				server_threads.push_back(thread(server, numofnodes, pp.at(a), to_string(clientID[k][j])));
+				cout << "Server thread with port and recvID " << pp.at(a) << "-" << clientID[k][j] << " is opened." << endl;
+				a++;
+			}
+		}
+		catch (exception &e) {
+			cout << "Thread could not started!!" << e.what() << endl;
+		}
+	}
+
+	for (int j = 0; j < numofnodes; j++) {
+		vector<int> bport(ports[j].begin(), ports[j].end());
+		try {
+			t = thread(client, to_string(idarray[j]), bport);
+		}
+		catch (exception &e) {
+			cout << "Thread could not started!!" << e.what() << endl;
+		}
+	}
+
+	for (int j = 0; j < numofnodes; j++) {
+		for (int i = 0; i < bindedports[j]; i++) {
+			server_threads[i].join();
+		}
+	}
+
+	cout << endl << "CLIENT" << endl;
+	for (int j = 0; j < numofnodes; j++) {
+		t.join();
+		edges.clear();
+	}
+	system("pause");
+}
